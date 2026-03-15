@@ -299,39 +299,6 @@ const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
 
-// Serve Control UI static assets (favicon, etc.) directly from the wrapper.
-// The gateway's built-in static file handler returns 404 for these in some Docker
-// builds, so we intercept them here before the request hits the proxy.
-const CONTROL_UI_DIST = path.join("/openclaw", "dist", "control-ui");
-const CONTROL_UI_STATIC = {
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".ico": "image/x-icon",
-};
-function serveControlUiStatic(urlPath, res) {
-  const rel = urlPath.replace(/^\/openclaw\//, "").replace(/^\//, "");
-  if (!rel || rel.includes("..") || rel.includes("//")) return false;
-  const ext = path.extname(rel);
-  const mime = CONTROL_UI_STATIC[ext];
-  if (!mime) return false;
-  const filePath = path.join(CONTROL_UI_DIST, rel);
-  try {
-    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
-      res.type(mime).send(fs.readFileSync(filePath));
-      return true;
-    }
-  } catch {
-    // ignore
-  }
-  return false;
-}
-app.get("/favicon.svg", (_req, res) => { if (!serveControlUiStatic("favicon.svg", res)) res.status(404).end(); });
-app.get("/favicon.ico", (_req, res) => { if (!serveControlUiStatic("favicon.ico", res)) res.status(404).end(); });
-app.get("/openclaw/favicon.svg", (_req, res) => { if (!serveControlUiStatic("favicon.svg", res)) res.status(404).end(); });
-app.get("/openclaw/favicon.ico", (_req, res) => { if (!serveControlUiStatic("favicon.ico", res)) res.status(404).end(); });
-app.get("/openclaw/favicon-32.png", (_req, res) => { if (!serveControlUiStatic("favicon-32.png", res)) res.status(404).end(); });
-app.get("/openclaw/apple-touch-icon.png", (_req, res) => { if (!serveControlUiStatic("apple-touch-icon.png", res)) res.status(404).end(); });
-
 // Minimal health endpoint for Railway.
 app.get("/setup/healthz", (_req, res) => res.json({ ok: true }));
 
