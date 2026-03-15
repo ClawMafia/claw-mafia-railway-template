@@ -755,6 +755,15 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
       clawArgs(["config", "set", "--json", "gateway.trustedProxies", JSON.stringify(["127.0.0.1"]) ]),
     );
 
+    // Allow the Control UI to be accessed from any origin. Railway assigns dynamic
+    // domains (*.up.railway.app) and users may add custom domains, so a wildcard is
+    // the simplest reliable approach. Auth is already handled by the wrapper (Basic
+    // auth) and gateway token injection.
+    await runCmd(
+      OPENCLAW_NODE,
+      clawArgs(["config", "set", "--json", "gateway.controlUi.allowedOrigins", JSON.stringify(["*"])]),
+    );
+
     // Optional: configure a custom OpenAI-compatible provider (base URL) for advanced users.
     if (payload.customProviderId?.trim() && payload.customProviderBaseUrl?.trim()) {
       const providerId = payload.customProviderId.trim();
