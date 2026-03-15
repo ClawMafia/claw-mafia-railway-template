@@ -299,6 +299,33 @@ const app = express();
 app.disable("x-powered-by");
 app.use(express.json({ limit: "1mb" }));
 
+// Serve favicon at the root so browsers don't 404 on /favicon.svg.
+// The gateway serves it under /openclaw/favicon.svg but browsers also request /favicon.svg.
+app.get("/favicon.svg", (_req, res) => {
+  const faviconPath = path.join("/openclaw", "dist", "control-ui", "favicon.svg");
+  try {
+    if (fs.existsSync(faviconPath)) {
+      res.type("image/svg+xml").send(fs.readFileSync(faviconPath));
+      return;
+    }
+  } catch {
+    // ignore
+  }
+  res.status(404).end();
+});
+app.get("/favicon.ico", (_req, res) => {
+  const faviconPath = path.join("/openclaw", "dist", "control-ui", "favicon.ico");
+  try {
+    if (fs.existsSync(faviconPath)) {
+      res.type("image/x-icon").send(fs.readFileSync(faviconPath));
+      return;
+    }
+  } catch {
+    // ignore
+  }
+  res.status(404).end();
+});
+
 // Minimal health endpoint for Railway.
 app.get("/setup/healthz", (_req, res) => res.json({ ok: true }));
 
