@@ -33,9 +33,9 @@ jobs:
           commit-message: "chore: bump OPENCLAW_GIT_REF to latest release"
           title: "chore: bump OPENCLAW_GIT_REF to latest OpenClaw release"
           body: |
-            Automated update of the default OpenClaw build ref (`OPENCLAW_GIT_REF`) to the latest upstream release tag.
+            Automated update of the default OpenClaw build ref (`OPENCLAW_GIT_REF`) to the latest release from ClawMafia/openclaw fork.
 
-            This keeps the Railway template stable-by-default while staying current.
+            This keeps the Railway template in sync with our forked OpenClaw version.
           branch: chore/bump-openclaw-ref
           delete-branch: true
           labels: |

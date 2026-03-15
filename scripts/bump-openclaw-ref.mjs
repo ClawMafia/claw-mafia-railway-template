@@ -1,6 +1,6 @@
 import fs from "node:fs";
 
-const owner = "openclaw";
+const owner = "ClawMafia";
 const repo = "openclaw";
 const token = process.env.GITHUB_TOKEN;
 if (!token) {
