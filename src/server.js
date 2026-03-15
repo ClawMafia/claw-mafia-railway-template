@@ -764,6 +764,13 @@ app.post("/setup/api/run", requireSetupAuth, async (req, res) => {
       clawArgs(["config", "set", "--json", "gateway.controlUi.allowedOrigins", JSON.stringify(["*"])]),
     );
 
+    // The wrapper proxies /openclaw/* to the gateway, so the gateway needs to know
+    // the base path to correctly resolve Control UI static assets (favicon, JS, CSS).
+    await runCmd(
+      OPENCLAW_NODE,
+      clawArgs(["config", "set", "gateway.controlUi.basePath", "/openclaw"]),
+    );
+
     // Optional: configure a custom OpenAI-compatible provider (base URL) for advanced users.
     if (payload.customProviderId?.trim() && payload.customProviderBaseUrl?.trim()) {
       const providerId = payload.customProviderId.trim();
