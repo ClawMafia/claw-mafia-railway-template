@@ -300,58 +300,92 @@
 
   // Device pairing helper
   var devicesRefreshBtn = document.getElementById('devicesRefresh');
-  var devicesListEl = document.getElementById('devicesList');
+  var devicesPendingEl = document.getElementById('devicesPending');
+  var devicesPairedOutputEl = document.getElementById('devicesPairedOutput');
+  var devicesAutoPollEl = document.getElementById('devicesAutoPoll');
+  var devicesAutoPollTimer = null;
 
   function approveDevice(requestId) {
     if (!requestId) return;
     if (!confirm('Approve device request ' + requestId + '?')) return;
-    if (devicesListEl) devicesListEl.textContent = 'Approving ' + requestId + '...';
+    if (devicesPendingEl) devicesPendingEl.textContent = 'Approving ' + requestId + '...';
 
     return httpJson('/setup/api/devices/approve', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ requestId: requestId })
     }).then(function (j) {
-      if (devicesListEl) devicesListEl.textContent = j.output || 'Approved.';
-      return refreshStatus();
+      if (devicesPendingEl) devicesPendingEl.textContent = j.output || 'Approved.';
+      return refreshDevices();
     }).catch(function (e) {
-      if (devicesListEl) devicesListEl.textContent = 'Error: ' + String(e);
+      if (devicesPendingEl) devicesPendingEl.textContent = 'Error: ' + String(e);
     });
   }
 
   function refreshDevices() {
-    if (!devicesListEl) return;
-    devicesListEl.textContent = 'Loading pending devices...';
+    if (!devicesPendingEl) return;
     return httpJson('/setup/api/devices/pending').then(function (j) {
       var ids = j.requestIds || [];
+      var output = j.output || '';
+
+      // Show pending section
       if (!ids.length) {
-        devicesListEl.textContent = 'No pending device requests found.';
-        return;
+        devicesPendingEl.textContent = 'No pending device requests.';
+      } else {
+        devicesPendingEl.innerHTML = '';
+        var heading = document.createElement('div');
+        heading.style.fontWeight = '600';
+        heading.style.marginBottom = '0.5rem';
+        heading.textContent = 'Pending requests (' + ids.length + '):';
+        devicesPendingEl.appendChild(heading);
+        for (var i = 0; i < ids.length; i++) {
+          (function (id) {
+            var row = document.createElement('div');
+            row.style.marginTop = '0.25rem';
+            var btn = document.createElement('button');
+            btn.textContent = 'Approve ' + id;
+            btn.style.background = '#111';
+            btn.style.color = '#fff';
+            btn.style.padding = '0.4rem 0.8rem';
+            btn.style.borderRadius = '6px';
+            btn.style.border = '0';
+            btn.style.cursor = 'pointer';
+            btn.style.marginRight = '0.5rem';
+            btn.onclick = function () { approveDevice(id); };
+            var code = document.createElement('code');
+            code.textContent = id;
+            row.appendChild(btn);
+            row.appendChild(code);
+            devicesPendingEl.appendChild(row);
+          })(ids[i]);
+        }
       }
-      devicesListEl.innerHTML = '';
-      for (var i = 0; i < ids.length; i++) {
-        (function (id) {
-          var row = document.createElement('div');
-          row.style.marginTop = '0.25rem';
-          var btn = document.createElement('button');
-          btn.textContent = 'Approve ' + id;
-          btn.style.background = '#111';
-          btn.style.marginRight = '0.5rem';
-          btn.onclick = function () { approveDevice(id); };
-          var code = document.createElement('code');
-          code.textContent = id;
-          row.appendChild(btn);
-          row.appendChild(code);
-          devicesListEl.appendChild(row);
-        })(ids[i]);
+
+      // Show paired output
+      if (devicesPairedOutputEl) {
+        devicesPairedOutputEl.textContent = output || 'No devices.';
       }
     }).catch(function (e) {
-      devicesListEl.textContent = 'Error: ' + String(e);
+      if (devicesPendingEl) devicesPendingEl.textContent = 'Error: ' + String(e);
     });
+  }
+
+  function toggleAutoPoll() {
+    if (devicesAutoPollTimer) {
+      clearInterval(devicesAutoPollTimer);
+      devicesAutoPollTimer = null;
+    }
+    if (devicesAutoPollEl && devicesAutoPollEl.checked) {
+      refreshDevices();
+      devicesAutoPollTimer = setInterval(refreshDevices, 3000);
+    }
   }
 
   if (devicesRefreshBtn) {
     devicesRefreshBtn.onclick = refreshDevices;
+  }
+  if (devicesAutoPollEl) {
+    devicesAutoPollEl.onchange = toggleAutoPoll;
   }
 
   document.getElementById('reset').onclick = function () {

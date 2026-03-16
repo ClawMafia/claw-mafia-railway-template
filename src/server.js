@@ -517,15 +517,23 @@ app.get("/setup", requireSetupAuth, (_req, res) => {
     <pre id="log" style="white-space:pre-wrap"></pre>
     <p class="muted">Reset deletes the OpenClaw config file so you can rerun onboarding. Pairing approval lets you grant DM access when dmPolicy=pairing.</p>
 
-    <details style="margin-top: 0.75rem">
-      <summary><strong>Pairing helper</strong> (for “disconnected (1008): pairing required”)</summary>
-      <p class="muted">This lists pending device requests and lets you approve them without SSH.</p>
-      <button id="devicesRefresh" style="background:#0f172a">Refresh pending devices</button>
-      <div id="devicesList" class="muted" style="margin-top:0.5rem"></div>
+  </div>
+
+  <div class=”card”>
+    <h2>Device Pairing</h2>
+    <p class=”muted”>Manage browser/device access. New browsers require pairing approval (pending requests expire in 5 minutes).</p>
+    <div style=”display:flex; gap:0.5rem; align-items:center; margin-top:0.5rem”>
+      <button id=”devicesRefresh” style=”background:#0f172a”>Refresh</button>
+      <label style=”margin:0; font-weight:normal”><input type=”checkbox” id=”devicesAutoPoll” /> Auto-poll (every 3s)</label>
+    </div>
+    <div id=”devicesPending” style=”margin-top:0.75rem”></div>
+    <details style=”margin-top:0.75rem”>
+      <summary class=”muted”>Paired devices</summary>
+      <pre id=”devicesPairedOutput” style=”white-space:pre-wrap” class=”muted”></pre>
     </details>
   </div>
 
-  <script src="/setup/app.js"></script>
+  <script src=”/setup/app.js”></script>
 </body>
 </html>`);
 });
