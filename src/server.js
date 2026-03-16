@@ -359,7 +359,7 @@ function setSessionCookie(res, payload) {
   const value = signSession(payload);
   const parts = [
     `${SESSION_COOKIE_NAME}=${encodeURIComponent(value)}`,
-    "Path=/setup",
+    "Path=/",
     "HttpOnly",
     "SameSite=Lax",
     `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
@@ -373,7 +373,7 @@ function setSessionCookie(res, payload) {
 function clearSessionCookie(res) {
   const parts = [
     `${SESSION_COOKIE_NAME}=`,
-    "Path=/setup",
+    "Path=/",
     "HttpOnly",
     "SameSite=Lax",
     "Max-Age=0",
@@ -707,7 +707,7 @@ app.get("/setup", requireSetupAuth, (req, res) => {
     <div id="status">Loading...</div>
     <div id="statusDetails" class="muted" style="margin-top:0.5rem"></div>
     <div style="margin-top: 0.75rem">
-      <a href="/openclaw" target="_blank">Open OpenClaw UI</a>
+      <a href="/openclaw/#token=${OPENCLAW_GATEWAY_TOKEN}" target="_blank">Open OpenClaw UI</a>
       &nbsp;|&nbsp;
       <a href="/setup/export" target="_blank">Download backup (.tar.gz)</a>
     </div>
@@ -1672,12 +1672,26 @@ proxy.on("error", (err, _req, res) => {
   }
 });
 
-// --- Dashboard password protection ---
-// Require the same SETUP_PASSWORD for the entire Control UI dashboard,
-// not just the /setup routes.  Healthcheck is excluded so Railway probes work.
+// --- Dashboard auth ---
+// Protects the entire Control UI dashboard (including /openclaw proxy).
+// Uses GitHub OAuth session when configured, falls back to Basic Auth.
 function requireDashboardAuth(req, res, next) {
   if (req.path === "/healthz" || req.path === "/setup/healthz") return next();
   if (req.path.startsWith("/hooks")) return next(); // allow OpenClaw webhook endpoints to bypass dashboard auth
+
+  // --- GitHub OAuth mode ---
+  if (GITHUB_CLIENT_ID) {
+    const cookies = parseCookies(req);
+    const session = verifySession(cookies[SESSION_COOKIE_NAME]);
+    if (session && session.user) {
+      req.setupUser = session.user;
+      return next();
+    }
+    // Redirect to login page for browser requests.
+    return res.redirect("/setup/auth/login");
+  }
+
+  // --- Basic Auth fallback ---
   if (!SETUP_PASSWORD) return next(); // no password configured → open
   const header = req.headers.authorization || "";
   const [scheme, encoded] = header.split(" ");
