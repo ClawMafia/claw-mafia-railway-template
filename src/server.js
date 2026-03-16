@@ -1304,8 +1304,18 @@ function extractDeviceRequestIds(text) {
   const s = String(text || "");
   const out = new Set();
 
+  // Key-value formats: requestId=... or "requestId":"..."
   for (const m of s.matchAll(/requestId\s*(?:=|:)\s*([A-Za-z0-9_-]{6,})/g)) out.add(m[1]);
   for (const m of s.matchAll(/"requestId"\s*:\s*"([A-Za-z0-9_-]{6,})"/g)) out.add(m[1]);
+
+  // Table format: extract UUIDs from the "Pending" section of `devices list` output.
+  // The pending section has UUIDs (8-4-4-4-12) in the first column of table rows.
+  const pendingMatch = s.match(/Pending[\s\S]*?(?=Paired|$)/i);
+  if (pendingMatch) {
+    for (const m of pendingMatch[0].matchAll(/│\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*│/g)) {
+      out.add(m[1]);
+    }
+  }
 
   return Array.from(out);
 }
