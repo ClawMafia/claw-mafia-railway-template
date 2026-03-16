@@ -1484,9 +1484,18 @@ app.post("/setup/api/pairing/approve", requireSetupAuth, async (req, res) => {
 
 // Device pairing helper (list + approve) to avoid needing SSH.
 app.get("/setup/api/devices/pending", requireSetupAuth, async (_req, res) => {
-  const r = await runCmd(OPENCLAW_NODE, clawArgs(["devices", "list"]));
+  // Try JSON output first for reliable parsing; fall back to table format.
+  const r = await runCmd(OPENCLAW_NODE, clawArgs(["devices", "list", "--json"]));
   const output = redactSecrets(r.output);
-  const requestIds = extractDeviceRequestIds(output);
+  let requestIds = [];
+  try {
+    const data = JSON.parse(r.output);
+    const pending = data.pending || data.Pending || [];
+    requestIds = pending.map(d => d.requestId || d.request || d.id).filter(Boolean);
+  } catch {
+    // JSON parse failed — fall back to regex extraction from table output.
+    requestIds = extractDeviceRequestIds(output);
+  }
   return res.status(r.code === 0 ? 200 : 500).json({ ok: r.code === 0, requestIds, output });
 });
 
