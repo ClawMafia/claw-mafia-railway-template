@@ -362,6 +362,7 @@ app.get("/setup/app.js", requireSetupAuth, (_req, res) => {
 
 app.get("/setup", requireSetupAuth, (_req, res) => {
   // No inline <script>: serve JS from /setup/app.js to avoid any encoding/template-literal issues.
+  res.set("Cache-Control", "no-store");
   res.type("html").send(`<!doctype html>
 <html>
 <head>
