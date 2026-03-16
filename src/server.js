@@ -43,6 +43,34 @@ const WORKSPACE_DIR =
 // Protect /setup with a user-provided password.
 const SETUP_PASSWORD = process.env.SETUP_PASSWORD?.trim();
 
+// GitHub OAuth for /setup routes (optional; falls back to Basic Auth if not set).
+const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID?.trim();
+const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET?.trim();
+const GITHUB_ORG = "ClawMafia";
+
+// Session secret for signing OAuth session cookies.
+// Persisted to STATE_DIR so it survives restarts (same pattern as resolveGatewayToken).
+function resolveSessionSecret() {
+  const secretPath = path.join(STATE_DIR, "session.secret");
+  try {
+    const existing = fs.readFileSync(secretPath, "utf8").trim();
+    if (existing) return existing;
+  } catch {
+    // ignore
+  }
+
+  const generated = crypto.randomBytes(32).toString("hex");
+  try {
+    fs.mkdirSync(STATE_DIR, { recursive: true });
+    fs.writeFileSync(secretPath, generated, { encoding: "utf8", mode: 0o600 });
+  } catch {
+    // best-effort
+  }
+  return generated;
+}
+
+const SESSION_SECRET = resolveSessionSecret();
+
 // Gateway admin token (protects OpenClaw gateway + Control UI).
 // Must be stable across restarts. If not provided via env, persist it in the state dir.
 function resolveGatewayToken() {
@@ -271,12 +299,172 @@ async function restartGateway() {
   return ensureGatewayRunning();
 }
 
+// --- Cookie session helpers (no external deps) ---
+const SESSION_COOKIE_NAME = "openclaw_setup_session";
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
+
+function base64urlEncode(buf) {
+  return Buffer.from(buf).toString("base64url");
+}
+
+function base64urlDecode(str) {
+  return Buffer.from(str, "base64url");
+}
+
+function signSession(payload) {
+  const json = JSON.stringify(payload);
+  const data = base64urlEncode(json);
+  const sig = crypto.createHmac("sha256", SESSION_SECRET).update(data).digest();
+  return `${data}.${base64urlEncode(sig)}`;
+}
+
+function verifySession(cookie) {
+  if (!cookie || typeof cookie !== "string") return null;
+  const dotIdx = cookie.indexOf(".");
+  if (dotIdx < 0) return null;
+
+  const data = cookie.slice(0, dotIdx);
+  const sig = cookie.slice(dotIdx + 1);
+
+  const expected = crypto.createHmac("sha256", SESSION_SECRET).update(data).digest();
+  const actual = base64urlDecode(sig);
+
+  if (actual.length !== expected.length) return null;
+  if (!crypto.timingSafeEqual(expected, actual)) return null;
+
+  try {
+    const payload = JSON.parse(base64urlDecode(data).toString("utf8"));
+    if (payload.exp && Date.now() > payload.exp) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+function parseCookies(req) {
+  const header = req.headers.cookie || "";
+  const cookies = {};
+  for (const part of header.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    const key = part.slice(0, eq).trim();
+    const val = part.slice(eq + 1).trim();
+    cookies[key] = decodeURIComponent(val);
+  }
+  return cookies;
+}
+
+function setSessionCookie(res, payload) {
+  payload.exp = Date.now() + SESSION_TTL_MS;
+  const value = signSession(payload);
+  const parts = [
+    `${SESSION_COOKIE_NAME}=${encodeURIComponent(value)}`,
+    "Path=/setup",
+    "HttpOnly",
+    "SameSite=Lax",
+    `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+  ];
+  // Set Secure flag when behind HTTPS (Railway always sets x-forwarded-proto).
+  const proto = (res.req?.headers?.["x-forwarded-proto"] || "").split(",")[0].trim();
+  if (proto === "https") parts.push("Secure");
+  res.append("Set-Cookie", parts.join("; "));
+}
+
+function clearSessionCookie(res) {
+  const parts = [
+    `${SESSION_COOKIE_NAME}=`,
+    "Path=/setup",
+    "HttpOnly",
+    "SameSite=Lax",
+    "Max-Age=0",
+  ];
+  const proto = (res.req?.headers?.["x-forwarded-proto"] || "").split(",")[0].trim();
+  if (proto === "https") parts.push("Secure");
+  res.append("Set-Cookie", parts.join("; "));
+}
+
+function renderLoginPage() {
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign in - OpenClaw Setup</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f9fafb; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 2.5rem; max-width: 400px; width: 100%; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    h1 { margin: 0 0 0.5rem; font-size: 1.5rem; }
+    .muted { color: #6b7280; font-size: 0.95rem; margin: 0 0 1.5rem; }
+    .btn { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.75rem 1.5rem; border-radius: 10px; border: 0; background: #24292f; color: #fff; font-weight: 600; font-size: 1rem; cursor: pointer; text-decoration: none; }
+    .btn:hover { background: #1b1f23; }
+    .btn svg { width: 20px; height: 20px; fill: currentColor; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>OpenClaw Setup</h1>
+    <p class="muted">Sign in with your GitHub account to continue. You must be a member of the <strong>${GITHUB_ORG}</strong> organization.</p>
+    <a class="btn" href="/setup/auth/login">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      Sign in with GitHub
+    </a>
+  </div>
+</body>
+</html>`;
+}
+
+function renderAccessDeniedPage(username) {
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Access Denied - OpenClaw Setup</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f9fafb; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 2.5rem; max-width: 400px; width: 100%; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    h1 { margin: 0 0 0.5rem; font-size: 1.5rem; color: #dc2626; }
+    .muted { color: #6b7280; font-size: 0.95rem; }
+    a { color: #2563eb; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Access Denied</h1>
+    <p class="muted">The GitHub user <strong>${username}</strong> is not a member of the <strong>${GITHUB_ORG}</strong> organization.</p>
+    <p class="muted">Contact an org admin or <a href="/setup/auth/login">try a different account</a>.</p>
+  </div>
+</body>
+</html>`;
+}
+
 function requireSetupAuth(req, res, next) {
+  // --- GitHub OAuth mode ---
+  if (GITHUB_CLIENT_ID) {
+    const cookies = parseCookies(req);
+    const session = verifySession(cookies[SESSION_COOKIE_NAME]);
+    if (session && session.user) {
+      req.setupUser = session.user;
+      return next();
+    }
+    // API requests get a 401 JSON; browser requests get the login page.
+    const wantsJson = (req.headers.accept || "").includes("application/json") ||
+                      req.path.startsWith("/setup/api/");
+    if (wantsJson) {
+      return res.status(401).json({ error: "Session expired or invalid" });
+    }
+    return res.status(401).type("html").send(renderLoginPage());
+  }
+
+  // --- Basic Auth fallback ---
   if (!SETUP_PASSWORD) {
     return res
       .status(500)
       .type("text/plain")
-      .send("SETUP_PASSWORD is not set. Set it in Railway Variables before using /setup.");
+      .send(
+        "Authentication not configured. Set GITHUB_CLIENT_ID + GITHUB_CLIENT_SECRET (recommended) " +
+        "or SETUP_PASSWORD in Railway Variables before using /setup."
+      );
   }
 
   const header = req.headers.authorization || "";
@@ -301,6 +489,132 @@ app.use(express.json({ limit: "1mb" }));
 
 // Minimal health endpoint for Railway.
 app.get("/setup/healthz", (_req, res) => res.json({ ok: true }));
+
+// --- GitHub OAuth routes (only active when GITHUB_CLIENT_ID is set) ---
+if (GITHUB_CLIENT_ID) {
+  // GET /setup/auth/login — redirect to GitHub authorize URL
+  app.get("/setup/auth/login", (req, res) => {
+    const proto = (req.headers["x-forwarded-proto"] || "").split(",")[0].trim() || "http";
+    const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost";
+    const redirectUri = `${proto}://${host}/setup/auth/callback`;
+
+    // CSRF state: random token stored in a short-lived cookie
+    const state = crypto.randomBytes(16).toString("hex");
+    const stateCookie = [
+      `openclaw_oauth_state=${state}`,
+      "Path=/setup/auth",
+      "HttpOnly",
+      "SameSite=Lax",
+      "Max-Age=600", // 10 minutes
+    ];
+    const cookieProto = proto === "https" ? [...stateCookie, "Secure"] : stateCookie;
+    res.append("Set-Cookie", cookieProto.join("; "));
+
+    const params = new URLSearchParams({
+      client_id: GITHUB_CLIENT_ID,
+      redirect_uri: redirectUri,
+      scope: "read:org",
+      state,
+    });
+    res.redirect(`https://github.com/login/oauth/authorize?${params}`);
+  });
+
+  // GET /setup/auth/callback — exchange code, check org membership, set session
+  app.get("/setup/auth/callback", async (req, res) => {
+    try {
+      const { code, state } = req.query;
+      if (!code || !state) {
+        return res.status(400).type("text/plain").send("Missing code or state parameter.");
+      }
+
+      // Verify CSRF state
+      const cookies = parseCookies(req);
+      const expectedState = cookies.openclaw_oauth_state;
+      if (!expectedState || state !== expectedState) {
+        return res.status(403).type("text/plain").send("Invalid OAuth state (possible CSRF). Please try again.");
+      }
+
+      // Clear state cookie
+      res.append("Set-Cookie", "openclaw_oauth_state=; Path=/setup/auth; HttpOnly; SameSite=Lax; Max-Age=0");
+
+      // Exchange code for access token
+      const tokenRes = await fetch("https://github.com/login/oauth/access_token", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          client_id: GITHUB_CLIENT_ID,
+          client_secret: GITHUB_CLIENT_SECRET,
+          code,
+        }),
+      });
+
+      const tokenBody = await tokenRes.json();
+      if (tokenBody.error || !tokenBody.access_token) {
+        return res.status(403).type("text/plain").send(
+          `GitHub OAuth error: ${tokenBody.error_description || tokenBody.error || "unknown"}`
+        );
+      }
+
+      const accessToken = tokenBody.access_token;
+
+      // Fetch user info
+      const userRes = await fetch("https://api.github.com/user", {
+        headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
+      });
+      if (!userRes.ok) {
+        return res.status(502).type("text/plain").send("Failed to fetch GitHub user info.");
+      }
+      const user = await userRes.json();
+      const username = user.login;
+
+      // Check ClawMafia org membership
+      const memberRes = await fetch(
+        `https://api.github.com/orgs/${encodeURIComponent(GITHUB_ORG)}/members/${encodeURIComponent(username)}`,
+        { headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" } }
+      );
+
+      if (memberRes.status !== 204) {
+        // Not a member
+        return res.status(403).type("html").send(renderAccessDeniedPage(username));
+      }
+
+      // Set session cookie (access token NOT stored — only username + expiry)
+      setSessionCookie(res, { user: username });
+      res.redirect("/setup");
+    } catch (err) {
+      console.error("[oauth callback]", err);
+      res.status(500).type("text/plain").send(`OAuth error: ${String(err)}`);
+    }
+  });
+
+  // GET /setup/auth/logout — clear session, show logged-out page
+  app.get("/setup/auth/logout", (_req, res) => {
+    clearSessionCookie(res);
+    res.type("html").send(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Logged out - OpenClaw Setup</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #f9fafb; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 16px; padding: 2.5rem; max-width: 400px; width: 100%; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    a { color: #2563eb; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Logged out</h2>
+    <p>You have been signed out of OpenClaw Setup.</p>
+    <p><a href="/setup/auth/login">Sign in again</a></p>
+  </div>
+</body>
+</html>`);
+  });
+}
 
 async function probeGateway() {
   // Don't assume HTTP — the gateway primarily speaks WebSocket.
@@ -360,8 +674,12 @@ app.get("/setup/app.js", requireSetupAuth, (_req, res) => {
   res.send(fs.readFileSync(path.join(process.cwd(), "src", "setup-app.js"), "utf8"));
 });
 
-app.get("/setup", requireSetupAuth, (_req, res) => {
+app.get("/setup", requireSetupAuth, (req, res) => {
   // No inline <script>: serve JS from /setup/app.js to avoid any encoding/template-literal issues.
+  const setupUser = req.setupUser || null;
+  const userBar = setupUser
+    ? `<div style="float:right; font-size:0.9rem; color:#555">Signed in as <strong>${setupUser}</strong> &middot; <a href="/setup/auth/logout">Sign out</a></div>`
+    : "";
   res.set("Cache-Control", "no-store");
   res.type("html").send(`<!doctype html>
 <html>
@@ -380,6 +698,7 @@ app.get("/setup", requireSetupAuth, (_req, res) => {
   </style>
 </head>
 <body>
+  ${userBar}
   <h1>OpenClaw Setup</h1>
   <p class="muted">This wizard configures OpenClaw by running the same onboarding command it uses in the terminal, but from the browser.</p>
 
@@ -1431,8 +1750,12 @@ const server = app.listen(PORT, "0.0.0.0", async () => {
 
   console.log(`[wrapper] gateway token: ${OPENCLAW_GATEWAY_TOKEN ? "(set)" : "(missing)"}`);
   console.log(`[wrapper] gateway target: ${GATEWAY_TARGET}`);
-  if (!SETUP_PASSWORD) {
-    console.warn("[wrapper] WARNING: SETUP_PASSWORD is not set; /setup will error.");
+  if (GITHUB_CLIENT_ID) {
+    console.log(`[wrapper] /setup auth: GitHub OAuth (org: ${GITHUB_ORG})`);
+  } else if (SETUP_PASSWORD) {
+    console.log("[wrapper] /setup auth: Basic Auth (SETUP_PASSWORD)");
+  } else {
+    console.warn("[wrapper] WARNING: Neither GITHUB_CLIENT_ID nor SETUP_PASSWORD is set; /setup will error.");
   }
 
   // Optional operator hook to install/persist extra tools under /data.

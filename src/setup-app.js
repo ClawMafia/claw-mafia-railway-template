@@ -95,6 +95,12 @@
     opts = opts || {};
     opts.credentials = 'same-origin';
     return fetch(url, opts).then(function (res) {
+      if (res.status === 401) {
+        // Session expired or invalid — redirect to login page.
+        window.location.href = '/setup/auth/login';
+        // Return a never-resolving promise to stop the calling chain.
+        return new Promise(function () {});
+      }
       if (!res.ok) {
         return res.text().then(function (t) {
           throw new Error('HTTP ' + res.status + ': ' + (t || res.statusText));
