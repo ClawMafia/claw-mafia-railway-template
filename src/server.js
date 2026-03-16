@@ -839,21 +839,21 @@ app.get("/setup", requireSetupAuth, (req, res) => {
 
   </div>
 
-  <div class=”card”>
+  <div class="card">
     <h2>Device Pairing</h2>
-    <p class=”muted”>Manage browser/device access. New browsers require pairing approval (pending requests expire in 5 minutes).</p>
-    <div style=”display:flex; gap:0.5rem; align-items:center; margin-top:0.5rem”>
-      <button id=”devicesRefresh” style=”background:#0f172a”>Refresh</button>
-      <label style=”margin:0; font-weight:normal”><input type=”checkbox” id=”devicesAutoPoll” /> Auto-poll (every 3s)</label>
+    <p class="muted">Manage browser/device access. New browsers require pairing approval (pending requests expire in 5 minutes).</p>
+    <div style="display:flex; gap:0.5rem; align-items:center; margin-top:0.5rem">
+      <button id="devicesRefresh" style="background:#0f172a">Refresh</button>
+      <label style="margin:0; font-weight:normal"><input type="checkbox" id="devicesAutoPoll" /> Auto-poll (every 3s)</label>
     </div>
-    <div id=”devicesPending” style=”margin-top:0.75rem”></div>
-    <details style=”margin-top:0.75rem”>
-      <summary class=”muted”>Paired devices</summary>
-      <pre id=”devicesPairedOutput” style=”white-space:pre-wrap” class=”muted”></pre>
+    <div id="devicesPending" style="margin-top:0.75rem"></div>
+    <details style="margin-top:0.75rem">
+      <summary class="muted">Paired devices</summary>
+      <pre id="devicesPairedOutput" style="white-space:pre-wrap" class="muted"></pre>
     </details>
   </div>
 
-  <script src=”/setup/app.js”></script>
+  <script src="/setup/app.js"></script>
 </body>
 </html>`);
 });
