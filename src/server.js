@@ -98,6 +98,49 @@ function resolveGatewayToken() {
 const OPENCLAW_GATEWAY_TOKEN = resolveGatewayToken();
 process.env.OPENCLAW_GATEWAY_TOKEN = OPENCLAW_GATEWAY_TOKEN;
 
+// ── claw-mafia-finance plugin auto-registration ──
+const FINANCE_PLUGIN_DIR = "/claw-mafia-finance";
+
+function ensureFinancePlugin() {
+  const cfgFile = configPath();
+  if (!fs.existsSync(cfgFile)) return;
+
+  let cfg;
+  try {
+    cfg = JSON.parse(fs.readFileSync(cfgFile, "utf8"));
+  } catch {
+    return;
+  }
+
+  let changed = false;
+
+  // Ensure plugins.loadPaths includes our plugin dir
+  if (!cfg.plugins) cfg.plugins = {};
+  if (!cfg.plugins.loadPaths) cfg.plugins.loadPaths = [];
+  if (!cfg.plugins.loadPaths.includes(FINANCE_PLUGIN_DIR)) {
+    cfg.plugins.loadPaths.push(FINANCE_PLUGIN_DIR);
+    changed = true;
+  }
+
+  // Ensure plugin entry is present and enabled
+  if (!cfg.plugins.entries) cfg.plugins.entries = {};
+  if (!cfg.plugins.entries["claw-mafia-finance"]) {
+    cfg.plugins.entries["claw-mafia-finance"] = {
+      enabled: true,
+      config: {
+        polygonApiKey: "$POLYGON_API_KEY",
+        dataDir: path.join(STATE_DIR, "finance-data"),
+      },
+    };
+    changed = true;
+  }
+
+  if (changed) {
+    fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
+    console.log("[finance-plugin] Registered claw-mafia-finance in config");
+  }
+}
+
 // Where the gateway will listen internally (we proxy to it).
 const INTERNAL_GATEWAY_PORT = Number.parseInt(process.env.INTERNAL_GATEWAY_PORT ?? "18789", 10);
 const INTERNAL_GATEWAY_HOST = process.env.INTERNAL_GATEWAY_HOST ?? "127.0.0.1";
@@ -218,6 +261,13 @@ async function startGateway() {
     "--token",
     OPENCLAW_GATEWAY_TOKEN,
   ];
+
+  // Ensure claw-mafia-finance plugin is registered in config before starting gateway.
+  try {
+    ensureFinancePlugin();
+  } catch (e) {
+    console.error(`[gateway] failed to configure finance plugin: ${e.message}`);
+  }
 
   gatewayProc = childProcess.spawn(OPENCLAW_NODE, clawArgs(args), {
     stdio: "inherit",

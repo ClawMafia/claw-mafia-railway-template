@@ -40,6 +40,11 @@ RUN pnpm build
 ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:install && pnpm ui:build
 
+# Build claw-mafia-finance plugin
+WORKDIR /claw-mafia-finance
+ARG FINANCE_PLUGIN_REF=main
+RUN git clone --depth 1 --branch "${FINANCE_PLUGIN_REF}" https://github.com/ClawMafia/claw-mafia-finance.git .
+
 
 # Runtime image
 FROM node:22-bookworm
@@ -51,6 +56,7 @@ RUN apt-get update \
     tini \
     python3 \
     python3-venv \
+    python3-pip \
   && rm -rf /var/lib/apt/lists/*
 
 # `openclaw update` expects pnpm. Provide it in the runtime image.
@@ -73,6 +79,11 @@ RUN npm install --omit=dev && npm cache clean --force
 
 # Copy built openclaw
 COPY --from=openclaw-build /openclaw /openclaw
+
+# Copy claw-mafia-finance plugin and set up Python venv
+COPY --from=openclaw-build /claw-mafia-finance /claw-mafia-finance
+RUN python3 -m venv /claw-mafia-finance/engine/.venv \
+  && /claw-mafia-finance/engine/.venv/bin/pip install --no-cache-dir -r /claw-mafia-finance/engine/requirements.txt
 
 # Provide an openclaw executable
 RUN printf '%s\n' '#!/usr/bin/env bash' 'exec node /openclaw/dist/entry.js "$@"' > /usr/local/bin/openclaw \
