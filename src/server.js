@@ -114,11 +114,17 @@ function ensureFinancePlugin() {
 
   let changed = false;
 
-  // Ensure plugins.loadPaths includes our plugin dir
+  // Ensure plugins.load.paths includes our plugin dir
   if (!cfg.plugins) cfg.plugins = {};
-  if (!cfg.plugins.loadPaths) cfg.plugins.loadPaths = [];
-  if (!cfg.plugins.loadPaths.includes(FINANCE_PLUGIN_DIR)) {
-    cfg.plugins.loadPaths.push(FINANCE_PLUGIN_DIR);
+  if (!cfg.plugins.load) cfg.plugins.load = {};
+  if (!cfg.plugins.load.paths) cfg.plugins.load.paths = [];
+  if (!cfg.plugins.load.paths.includes(FINANCE_PLUGIN_DIR)) {
+    cfg.plugins.load.paths.push(FINANCE_PLUGIN_DIR);
+    changed = true;
+  }
+  // Clean up old incorrect key if present
+  if (cfg.plugins.loadPaths) {
+    delete cfg.plugins.loadPaths;
     changed = true;
   }
 
