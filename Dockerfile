@@ -43,7 +43,7 @@ RUN pnpm ui:install && pnpm ui:build
 # Build claw-mafia-finance plugin
 WORKDIR /claw-mafia-finance
 ARG FINANCE_PLUGIN_REF=main
-ARG FINANCE_CACHE_BUST=3
+ARG FINANCE_CACHE_BUST=4
 RUN git clone --depth 1 --branch "${FINANCE_PLUGIN_REF}" https://github.com/ClawMafia/claw-mafia-finance.git .
 
 
