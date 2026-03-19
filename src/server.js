@@ -134,11 +134,20 @@ function ensureFinancePlugin() {
     cfg.plugins.entries["claw-mafia-finance"] = {
       enabled: true,
       config: {
-        polygonApiKey: "$POLYGON_API_KEY",
+        polygonApiKey: process.env.POLYGON_API_KEY ?? "",
         dataDir: path.join(STATE_DIR, "finance-data"),
       },
     };
     changed = true;
+  } else {
+    // Always sync the API key from env so Railway variable changes take effect on redeploy
+    const entry = cfg.plugins.entries["claw-mafia-finance"];
+    const liveKey = process.env.POLYGON_API_KEY ?? "";
+    if (!entry.config) entry.config = {};
+    if (entry.config.polygonApiKey !== liveKey) {
+      entry.config.polygonApiKey = liveKey;
+      changed = true;
+    }
   }
 
   if (changed) {
