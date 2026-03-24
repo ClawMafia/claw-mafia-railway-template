@@ -160,6 +160,15 @@ function ensureFinancePlugin() {
       entry.config.fredApiKey = liveFred;
       changed = true;
     }
+    // Remove stale keys no longer in the plugin's configSchema (e.g. polygonApiKey removed when we
+    // switched from Polygon to yfinance/Alpaca). These cause "additionalProperties" validation errors.
+    const knownKeys = new Set(["alpacaApiKey", "alpacaApiSecret", "alpacaBaseUrl", "fredApiKey", "dataDir", "paperAccountCapital"]);
+    for (const key of Object.keys(entry.config)) {
+      if (!knownKeys.has(key)) {
+        delete entry.config[key];
+        changed = true;
+      }
+    }
   }
 
   if (changed) {
