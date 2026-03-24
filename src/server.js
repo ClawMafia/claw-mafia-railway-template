@@ -134,7 +134,8 @@ function ensureFinancePlugin() {
     cfg.plugins.entries["claw-mafia-finance"] = {
       enabled: true,
       config: {
-        polygonApiKey: process.env.POLYGON_API_KEY ?? "",
+        alpacaApiKey: process.env.ALPACA_API_KEY ?? "",
+        alpacaApiSecret: process.env.ALPACA_API_SECRET ?? "",
         fredApiKey: process.env.FRED_API_KEY ?? "",
         dataDir: path.join(STATE_DIR, "finance-data"),
       },
@@ -144,10 +145,15 @@ function ensureFinancePlugin() {
     // Always sync API keys from env so Railway variable changes take effect on redeploy
     const entry = cfg.plugins.entries["claw-mafia-finance"];
     if (!entry.config) entry.config = {};
-    const livePolygon = process.env.POLYGON_API_KEY ?? "";
+    const liveAlpacaKey = process.env.ALPACA_API_KEY ?? "";
+    const liveAlpacaSecret = process.env.ALPACA_API_SECRET ?? "";
     const liveFred = process.env.FRED_API_KEY ?? "";
-    if (entry.config.polygonApiKey !== livePolygon) {
-      entry.config.polygonApiKey = livePolygon;
+    if (entry.config.alpacaApiKey !== liveAlpacaKey) {
+      entry.config.alpacaApiKey = liveAlpacaKey;
+      changed = true;
+    }
+    if (entry.config.alpacaApiSecret !== liveAlpacaSecret) {
+      entry.config.alpacaApiSecret = liveAlpacaSecret;
       changed = true;
     }
     if (entry.config.fredApiKey !== liveFred) {
