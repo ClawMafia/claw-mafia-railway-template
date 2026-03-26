@@ -177,6 +177,97 @@ function ensureFinancePlugin() {
   }
 }
 
+// ── OpenAI Codex OAuth credential injection ──
+// Reads Codex OAuth tokens from env vars and writes them into the auth-profiles
+// store so the gateway can use the openai-codex provider without a browser sign-in.
+// Env vars: CODEX_ACCESS_TOKEN, CODEX_REFRESH_TOKEN, CODEX_EXPIRES, CODEX_ACCOUNT_ID
+function ensureCodexAuthProfile() {
+  const access = process.env.CODEX_ACCESS_TOKEN?.trim();
+  const refresh = process.env.CODEX_REFRESH_TOKEN?.trim();
+  if (!access || !refresh) return; // nothing to inject
+
+  const expires = Number(process.env.CODEX_EXPIRES?.trim() || "0");
+  const accountId = process.env.CODEX_ACCOUNT_ID?.trim() || "";
+
+  // Write auth-profiles.json into the agent state dir
+  const agentDir = path.join(STATE_DIR, "agents", "main", "agent");
+  fs.mkdirSync(agentDir, { recursive: true });
+
+  const profilesPath = path.join(agentDir, "auth-profiles.json");
+  let profiles;
+  try {
+    profiles = JSON.parse(fs.readFileSync(profilesPath, "utf8"));
+  } catch {
+    profiles = { version: 1, profiles: {}, lastGood: {}, usageStats: {} };
+  }
+
+  // Sync credentials from env (env wins so Railway variable updates take effect)
+  const profileKey = "openai-codex:default";
+  const existing = profiles.profiles?.[profileKey];
+  const needsUpdate =
+    !existing ||
+    existing.access !== access ||
+    existing.refresh !== refresh ||
+    existing.expires !== expires;
+
+  if (needsUpdate) {
+    profiles.profiles[profileKey] = {
+      type: "oauth",
+      provider: "openai-codex",
+      access,
+      refresh,
+      expires,
+      accountId,
+    };
+    if (!profiles.lastGood) profiles.lastGood = {};
+    profiles.lastGood["openai-codex"] = profileKey;
+
+    fs.writeFileSync(profilesPath, JSON.stringify(profiles, null, 2), { mode: 0o600 });
+    console.log("[codex-auth] Synced Codex OAuth credentials into auth-profiles");
+  }
+
+  // Also patch openclaw.json: set default model + auth profile reference
+  const cfgFile = configPath();
+  if (!fs.existsSync(cfgFile)) return;
+
+  let cfg;
+  try {
+    cfg = JSON.parse(fs.readFileSync(cfgFile, "utf8"));
+  } catch {
+    return;
+  }
+
+  let cfgChanged = false;
+
+  // Set auth profile reference in config
+  if (!cfg.auth) cfg.auth = {};
+  if (!cfg.auth.profiles) cfg.auth.profiles = {};
+  if (!cfg.auth.profiles[profileKey] || cfg.auth.profiles[profileKey].mode !== "oauth") {
+    cfg.auth.profiles[profileKey] = { provider: "openai-codex", mode: "oauth" };
+    cfgChanged = true;
+  }
+
+  // Set default model to openai-codex
+  if (!cfg.agents) cfg.agents = {};
+  if (!cfg.agents.defaults) cfg.agents.defaults = {};
+  if (!cfg.agents.defaults.model) cfg.agents.defaults.model = {};
+  if (cfg.agents.defaults.model.primary !== "openai-codex/gpt-5.3-codex") {
+    cfg.agents.defaults.model.primary = "openai-codex/gpt-5.3-codex";
+    cfgChanged = true;
+  }
+
+  // Remove any OpenAI API key provider config (we're switching to Codex OAuth)
+  if (cfg.models?.providers?.openai) {
+    delete cfg.models.providers.openai;
+    cfgChanged = true;
+  }
+
+  if (cfgChanged) {
+    fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
+    console.log("[codex-auth] Updated openclaw.json: default model → openai-codex/gpt-5.3-codex");
+  }
+}
+
 // Where the gateway will listen internally (we proxy to it).
 const INTERNAL_GATEWAY_PORT = Number.parseInt(process.env.INTERNAL_GATEWAY_PORT ?? "18789", 10);
 const INTERNAL_GATEWAY_HOST = process.env.INTERNAL_GATEWAY_HOST ?? "127.0.0.1";
@@ -297,6 +388,13 @@ async function startGateway() {
     "--token",
     OPENCLAW_GATEWAY_TOKEN,
   ];
+
+  // Inject Codex OAuth credentials from env vars before starting gateway.
+  try {
+    ensureCodexAuthProfile();
+  } catch (e) {
+    console.error(`[gateway] failed to configure Codex auth: ${e.message}`);
+  }
 
   // Ensure claw-mafia-finance plugin is registered in config before starting gateway.
   try {
