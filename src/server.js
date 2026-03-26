@@ -210,7 +210,15 @@ function ensureCodexAuthProfile() {
     existing.refresh !== refresh ||
     existing.expires !== expires;
 
-  if (needsUpdate) {
+  // Remove old OpenAI API key profile from credentials store
+  const hadOldProfile = !!profiles.profiles["openai:default"];
+  if (hadOldProfile) {
+    delete profiles.profiles["openai:default"];
+    if (profiles.lastGood?.openai) delete profiles.lastGood.openai;
+    if (profiles.usageStats?.["openai:default"]) delete profiles.usageStats["openai:default"];
+  }
+
+  if (needsUpdate || hadOldProfile) {
     profiles.profiles[profileKey] = {
       type: "oauth",
       provider: "openai-codex",
@@ -224,6 +232,7 @@ function ensureCodexAuthProfile() {
 
     fs.writeFileSync(profilesPath, JSON.stringify(profiles, null, 2), { mode: 0o600 });
     console.log("[codex-auth] Synced Codex OAuth credentials into auth-profiles");
+    if (hadOldProfile) console.log("[codex-auth] Removed old openai:default API key profile");
   }
 
   // Also patch openclaw.json: set default model + auth profile reference
@@ -244,6 +253,12 @@ function ensureCodexAuthProfile() {
   if (!cfg.auth.profiles) cfg.auth.profiles = {};
   if (!cfg.auth.profiles[profileKey] || cfg.auth.profiles[profileKey].mode !== "oauth") {
     cfg.auth.profiles[profileKey] = { provider: "openai-codex", mode: "oauth" };
+    cfgChanged = true;
+  }
+
+  // Remove old OpenAI API key auth profile (replaced by Codex OAuth)
+  if (cfg.auth.profiles["openai:default"]) {
+    delete cfg.auth.profiles["openai:default"];
     cfgChanged = true;
   }
 
