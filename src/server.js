@@ -262,12 +262,12 @@ function ensureCodexAuthProfile() {
     cfgChanged = true;
   }
 
-  // Set default model to openai-codex
+  // Set default model to openai-codex/gpt-5.4
   if (!cfg.agents) cfg.agents = {};
   if (!cfg.agents.defaults) cfg.agents.defaults = {};
   if (!cfg.agents.defaults.model) cfg.agents.defaults.model = {};
-  if (cfg.agents.defaults.model.primary !== "openai-codex/gpt-5.3-codex") {
-    cfg.agents.defaults.model.primary = "openai-codex/gpt-5.3-codex";
+  if (cfg.agents.defaults.model.primary !== "openai-codex/gpt-5.4") {
+    cfg.agents.defaults.model.primary = "openai-codex/gpt-5.4";
     cfgChanged = true;
   }
 
@@ -279,7 +279,7 @@ function ensureCodexAuthProfile() {
 
   if (cfgChanged) {
     fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
-    console.log("[codex-auth] Updated openclaw.json: default model → openai-codex/gpt-5.3-codex");
+    console.log("[codex-auth] Updated openclaw.json: default model → openai-codex/gpt-5.4");
   }
 }
 
