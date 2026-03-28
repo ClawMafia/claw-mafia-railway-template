@@ -177,19 +177,14 @@ function ensureFinancePlugin() {
   }
 }
 
-// ── OpenAI Codex OAuth credential injection ──
-// Two modes:
-// 1. Env vars (CODEX_ACCESS_TOKEN, CODEX_REFRESH_TOKEN): inject tokens into auth-profiles.
-// 2. SSH login: tokens already exist on disk from `openclaw models auth login --provider openai-codex`.
-// In both cases, ensure openclaw.json has the correct model + auth profile reference.
+// ── OpenAI Codex OAuth model config ──
+// Credentials are managed on disk via SSH: `openclaw models auth login --provider openai-codex`.
+// This function only ensures openclaw.json has the correct model + auth profile reference.
 function ensureCodexAuthProfile() {
-  const access = process.env.CODEX_ACCESS_TOKEN?.trim();
-  const refresh = process.env.CODEX_REFRESH_TOKEN?.trim();
-  const hasEnvTokens = !!(access && refresh);
+  const profileKey = "openai-codex:default";
 
+  // Check if Codex credentials exist on disk (from SSH login)
   const agentDir = path.join(STATE_DIR, "agents", "main", "agent");
-  fs.mkdirSync(agentDir, { recursive: true });
-
   const profilesPath = path.join(agentDir, "auth-profiles.json");
   let profiles;
   try {
@@ -198,50 +193,6 @@ function ensureCodexAuthProfile() {
     profiles = { version: 1, profiles: {}, lastGood: {}, usageStats: {} };
   }
 
-  const profileKey = "openai-codex:default";
-
-  // Remove old OpenAI API key profile from credentials store
-  const hadOldProfile = !!profiles.profiles["openai:default"];
-  if (hadOldProfile) {
-    delete profiles.profiles["openai:default"];
-    if (profiles.lastGood?.openai) delete profiles.lastGood.openai;
-    if (profiles.usageStats?.["openai:default"]) delete profiles.usageStats["openai:default"];
-  }
-
-  if (hasEnvTokens) {
-    // Env var mode: sync credentials from env (env wins so Railway variable updates take effect)
-    const expires = Number(process.env.CODEX_EXPIRES?.trim() || "0");
-    const accountId = process.env.CODEX_ACCOUNT_ID?.trim() || "";
-    const existing = profiles.profiles?.[profileKey];
-    const needsUpdate =
-      !existing ||
-      existing.access !== access ||
-      existing.refresh !== refresh ||
-      existing.expires !== expires;
-
-    if (needsUpdate || hadOldProfile) {
-      profiles.profiles[profileKey] = {
-        type: "oauth",
-        provider: "openai-codex",
-        access,
-        refresh,
-        expires,
-        accountId,
-      };
-      if (!profiles.lastGood) profiles.lastGood = {};
-      profiles.lastGood["openai-codex"] = profileKey;
-
-      fs.writeFileSync(profilesPath, JSON.stringify(profiles, null, 2), { mode: 0o600 });
-      console.log("[codex-auth] Synced Codex OAuth credentials from env vars");
-      if (hadOldProfile) console.log("[codex-auth] Removed old openai:default API key profile");
-    }
-  } else if (hadOldProfile) {
-    // No env tokens but had old profile to clean up
-    fs.writeFileSync(profilesPath, JSON.stringify(profiles, null, 2), { mode: 0o600 });
-    console.log("[codex-auth] Removed old openai:default API key profile");
-  }
-
-  // Check if Codex credentials exist on disk (either from env injection above or SSH login)
   const hasCredentials = !!profiles.profiles?.[profileKey]?.access;
   if (!hasCredentials) {
     console.log("[codex-auth] No Codex credentials found. Run `openclaw models auth login --provider openai-codex` via SSH to set up.");
